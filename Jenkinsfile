@@ -2,8 +2,8 @@ pipeline {
   agent any
 
   environment {
-    MVN      = '/opt/homebrew/bin/mvn'          // run 'which mvn' to confirm; change if different
-    DOCKER   = '/usr/local/bin/docker'          // you verified this path
+    MVN      = '/opt/homebrew/bin/mvn'
+    DOCKER   = '/usr/local/bin/docker'
     TAG      = "${env.BUILD_NUMBER}"
     SERVICES = 'accounts-service,billing-service'
     CRED     = credentials('dockerhub')         // exposes CRED_USR and CRED_PSW
