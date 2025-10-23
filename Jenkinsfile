@@ -2,20 +2,18 @@ pipeline {
   agent any
 
   environment {
-    MVN      = '/opt/homebrew/bin/mvn'
-    DOCKER   = '/usr/local/bin/docker'
-    TAG      = "${env.BUILD_NUMBER}"
+    MVN      = '/opt/homebrew/bin/mvn'        // change if `which mvn` is different
+    DOCKER   = '/usr/local/bin/docker'        // you already verified this path
     SERVICES = 'accounts-service,billing-service'
-    CRED     = credentials('dockerhub')         // exposes CRED_USR and CRED_PSW
   }
 
   options { timestamps() }
-  triggers { pollSCM('H/5 * * * *') } // keep or remove if only using webhook
+  triggers { pollSCM('H/5 * * * *') } // keep or remove if webhook only
 
   stages {
-    stage('Sanity: paths & versions') {
+
+    stage('Sanity: versions') {
       steps {
-        sh "echo PATH=\$PATH"
         sh "${MVN} -v"
         sh "${DOCKER} version"
         sh "${DOCKER} compose version"
@@ -29,7 +27,7 @@ pipeline {
     stage('Unit tests (parallel)') {
       steps {
         script {
-          def svc = env.SERVICES.split(',')
+          def svc = SERVICES.split(',')
           parallel svc.collectEntries { s ->
             ["test-${s}": {
               dir("services/${s}") {
@@ -44,7 +42,7 @@ pipeline {
     stage('Package (parallel)') {
       steps {
         script {
-          def svc = env.SERVICES.split(',')
+          def svc = SERVICES.split(',')
           parallel svc.collectEntries { s ->
             ["pkg-${s}": {
               dir("services/${s}") {
@@ -58,20 +56,25 @@ pipeline {
 
     stage('Docker login') {
       steps {
-        sh "echo \"${CRED_PSW}\" | ${DOCKER} login -u \"${CRED_USR}\" --password-stdin"
+        withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
+          sh "echo \"${DH_PASS}\" | ${DOCKER} login -u \"${DH_USER}\" --password-stdin"
+          script { env.DOCKERHUB_USER = DH_USER }
+        }
       }
     }
 
     stage('Build images (parallel)') {
       steps {
         script {
-          def svc = env.SERVICES.split(',')
+          def svc = SERVICES.split(',')
+          def user = env.DOCKERHUB_USER
+          def tag  = env.BUILD_NUMBER
           parallel svc.collectEntries { s ->
             ["build-${s}": {
               dir("services/${s}") {
                 sh """
-                  ${DOCKER} build -t ${CRED_USR}/${s}:${TAG} .
-                  ${DOCKER} tag ${CRED_USR}/${s}:${TAG} ${CRED_USR}/${s}:latest
+                  ${DOCKER} build -t ${user}/${s}:${tag} .
+                  ${DOCKER} tag  ${user}/${s}:${tag} ${user}/${s}:latest
                 """
               }
             }]
@@ -83,12 +86,14 @@ pipeline {
     stage('Push images (parallel)') {
       steps {
         script {
-          def svc = env.SERVICES.split(',')
+          def svc = SERVICES.split(',')
+          def user = env.DOCKERHUB_USER
+          def tag  = env.BUILD_NUMBER
           parallel svc.collectEntries { s ->
             ["push-${s}": {
               sh """
-                ${DOCKER} push ${CRED_USR}/${s}:${TAG}
-                ${DOCKER} push ${CRED_USR}/${s}:latest
+                ${DOCKER} push ${user}/${s}:${tag}
+                ${DOCKER} push ${user}/${s}:latest
               """
             }]
           }
@@ -98,12 +103,16 @@ pipeline {
 
     stage('Deploy (Docker Compose)') {
       steps {
-        sh """
-          export DOCKERHUB_USERNAME=${CRED_USR}
-          export TAG=${TAG}
-          ${DOCKER} compose pull
-          ${DOCKER} compose up -d
-        """
+        script {
+          def user = env.DOCKERHUB_USER
+          def tag  = env.BUILD_NUMBER
+          sh """
+            export DOCKERHUB_USERNAME=${user}
+            export TAG=${tag}
+            ${DOCKER} compose pull
+            ${DOCKER} compose up -d
+          """
+        }
       }
     }
 
@@ -116,7 +125,7 @@ pipeline {
   }
 
   post {
-    always { sh "${DOCKER} ps || true" }
-    success { echo "Deployed ${TAG}" }
+    always  { sh "${DOCKER} ps || true" }
+    success { echo "Deployed ${env.DOCKERHUB_USER}/(accounts-service|billing-service):${env.BUILD_NUMBER}" }
   }
 }
