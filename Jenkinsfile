@@ -1,6 +1,8 @@
 pipeline {
   agent any
 
+  tools { maven 'M3' }
+
   environment {
     REGISTRY = 'https://index.docker.io/v1/'
     // Bind the credentials; will expose CRED_USR and CRED_PSW automatically
