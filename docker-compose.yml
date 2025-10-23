@@ -1,10 +1,12 @@
 services:
   accounts-service:
     image: ${DOCKERHUB_USERNAME}/accounts-service:${TAG:-latest}
+    pull_policy: never
     ports: ["8091:8091"]
     restart: unless-stopped
 
   billing-service:
     image: ${DOCKERHUB_USERNAME}/billing-service:${TAG:-latest}
+    pull_policy: never
     ports: ["8092:8092"]
     restart: unless-stopped
