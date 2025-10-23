@@ -1,6 +1,7 @@
 pipeline {
   agent any
 
+
   environment {
     MVN     = '/opt/homebrew/bin/mvn'      // <-- adjust if which mvn shows a different path
     DOCKER  = '/usr/local/bin/docker'      // symlink to Docker Desktop's CLI
