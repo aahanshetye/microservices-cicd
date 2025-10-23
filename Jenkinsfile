@@ -1,41 +1,39 @@
 pipeline {
   agent any
 
-
   environment {
-    MVN     = '/opt/homebrew/bin/mvn'      // <-- adjust if which mvn shows a different path
-    DOCKER  = '/usr/local/bin/docker'      // symlink to Docker Desktop's CLI
-    TAG     = "${env.BUILD_NUMBER}"
-    SERVICES= 'accounts-service,billing-service'
-    CRED    = credentials('dockerhub')     // exposes CRED_USR and CRED_PSW
+    MVN      = '/opt/homebrew/bin/mvn'          // run 'which mvn' to confirm; change if different
+    DOCKER   = '/usr/local/bin/docker'          // you verified this path
+    TAG      = "${env.BUILD_NUMBER}"
+    SERVICES = 'accounts-service,billing-service'
+    CRED     = credentials('dockerhub')         // exposes CRED_USR and CRED_PSW
   }
 
   options { timestamps() }
-  // keep pollSCM OR Github webhook; ok to keep both for now
-  triggers { pollSCM('H/5 * * * *') }
+  triggers { pollSCM('H/5 * * * *') } // keep or remove if only using webhook
 
   stages {
     stage('Sanity: paths & versions') {
       steps {
-        sh '''
-          echo PATH=$PATH
-          ${MVN} -v
-          ${DOCKER} version
-          ${DOCKER} compose version
-        '''
+        sh "echo PATH=\$PATH"
+        sh "${MVN} -v"
+        sh "${DOCKER} version"
+        sh "${DOCKER} compose version"
       }
     }
 
-    stage('Checkout'){ steps { checkout scm } }
+    stage('Checkout') {
+      steps { checkout scm }
+    }
 
-    stage('Unit tests (parallel)'){
+    stage('Unit tests (parallel)') {
       steps {
         script {
           def svc = env.SERVICES.split(',')
           parallel svc.collectEntries { s ->
             ["test-${s}": {
               dir("services/${s}") {
-                sh '${MVN} -B -q test'
+                sh "${MVN} -B -q test"
               }
             }]
           }
@@ -43,14 +41,14 @@ pipeline {
       }
     }
 
-    stage('Package (parallel)'){
+    stage('Package (parallel)') {
       steps {
         script {
           def svc = env.SERVICES.split(',')
           parallel svc.collectEntries { s ->
             ["pkg-${s}": {
               dir("services/${s}") {
-                sh '${MVN} -B -q -DskipTests package'
+                sh "${MVN} -B -q -DskipTests package"
               }
             }]
           }
@@ -58,13 +56,13 @@ pipeline {
       }
     }
 
-    stage('Docker login'){
+    stage('Docker login') {
       steps {
-        sh 'echo "${CRED_PSW}" | ${DOCKER} login -u "${CRED_USR}" --password-stdin'
+        sh "echo \"${CRED_PSW}\" | ${DOCKER} login -u \"${CRED_USR}\" --password-stdin"
       }
     }
 
-    stage('Build images (parallel)'){
+    stage('Build images (parallel)') {
       steps {
         script {
           def svc = env.SERVICES.split(',')
@@ -82,7 +80,7 @@ pipeline {
       }
     }
 
-    stage('Push images (parallel)'){
+    stage('Push images (parallel)') {
       steps {
         script {
           def svc = env.SERVICES.split(',')
@@ -98,7 +96,7 @@ pipeline {
       }
     }
 
-    stage('Deploy (Docker Compose)'){
+    stage('Deploy (Docker Compose)') {
       steps {
         sh """
           export DOCKERHUB_USERNAME=${CRED_USR}
@@ -109,16 +107,16 @@ pipeline {
       }
     }
 
-    stage('Verify'){
+    stage('Verify') {
       steps {
-        sh 'curl -fsS http://localhost:8091/health'
-        sh 'curl -fsS http://localhost:8092/health'
+        sh "curl -fsS http://localhost:8091/health"
+        sh "curl -fsS http://localhost:8092/health"
       }
     }
   }
 
   post {
-    always { sh '${DOCKER} ps || true' }
+    always { sh "${DOCKER} ps || true" }
     success { echo "Deployed ${TAG}" }
   }
 }
