@@ -1,15 +1,14 @@
 pipeline {
   agent any
 
-  // Use absolute paths so PATH quirks can't bite
   environment {
-    MVN      = '/opt/homebrew/bin/mvn'        // change if `which mvn` shows a different path
-    DOCKER   = '/usr/local/bin/docker'        // you verified this path
+    MVN      = '/opt/homebrew/bin/mvn'      // change if `which mvn` is different
+    DOCKER   = '/usr/local/bin/docker'      // you verified this path
     SERVICES = 'accounts-service,billing-service'
   }
 
   options { timestamps() }
-  triggers { pollSCM('H/5 * * * *') } // keep or remove if you rely solely on webhook
+  triggers { pollSCM('H/5 * * * *') } // keep or remove if webhook only
 
   stages {
 
@@ -55,9 +54,7 @@ pipeline {
       }
     }
 
-    // Write credentials to $HOME/.docker/config.json with credsStore disabled
-    // so docker login works without docker-credential-desktop,
-    // and keep Compose plugin visible.
+    // Write to $HOME/.docker so compose plugin remains visible (no DOCKER_CONFIG overrides anywhere else)
     stage('Docker login (HOME config, no helper)') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
@@ -65,14 +62,12 @@ pipeline {
             set -euo pipefail
             set +x
             mkdir -p "$HOME/.docker"
-            # Backup existing config just in case
+            # backup existing config
             if [ -f "$HOME/.docker/config.json" ]; then
               cp "$HOME/.docker/config.json" "$HOME/.docker/config.json.bak" || true
             fi
-            # Minimal config: disable credsStore so login writes plaintext auth
-            cat > "$HOME/.docker/config.json" <<'JSON'
-{"credsStore":""}
-JSON
+            # minimal config disables helper to avoid docker-credential-desktop
+            printf '%s\n' '{"credsStore":""}' > "$HOME/.docker/config.json"
             printf "%s\n" "$DH_PASS" | /usr/local/bin/docker login -u "$DH_USER" --password-stdin
           '''
           script { env.DOCKERHUB_USER = env.DH_USER }
