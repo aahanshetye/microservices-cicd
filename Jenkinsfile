@@ -2,21 +2,26 @@ pipeline {
   agent any
 
   environment {
-    DOCKER   = '/usr/local/bin/docker'  // <-- this matches your system
-    TAG      = "${env.BUILD_NUMBER}"
-    SERVICES = 'accounts-service,billing-service'
-    CRED     = credentials('dockerhub') // exposes CRED_USR and CRED_PSW
+    MVN     = '/opt/homebrew/bin/mvn'      // <-- adjust if which mvn shows a different path
+    DOCKER  = '/usr/local/bin/docker'      // symlink to Docker Desktop's CLI
+    TAG     = "${env.BUILD_NUMBER}"
+    SERVICES= 'accounts-service,billing-service'
+    CRED    = credentials('dockerhub')     // exposes CRED_USR and CRED_PSW
   }
 
   options { timestamps() }
-  triggers { pollSCM('H/5 * * * *') } // remove if you rely solely on the GitHub webhook
+  // keep pollSCM OR Github webhook; ok to keep both for now
+  triggers { pollSCM('H/5 * * * *') }
 
   stages {
-    stage('Sanity: docker path/version') {
+    stage('Sanity: paths & versions') {
       steps {
-        sh 'echo PATH=$PATH'
-        sh '${DOCKER} version'
-        sh '${DOCKER} compose version'
+        sh '''
+          echo PATH=$PATH
+          ${MVN} -v
+          ${DOCKER} version
+          ${DOCKER} compose version
+        '''
       }
     }
 
@@ -28,7 +33,9 @@ pipeline {
           def svc = env.SERVICES.split(',')
           parallel svc.collectEntries { s ->
             ["test-${s}": {
-              dir("services/${s}") { sh 'mvn -B -q test' }
+              dir("services/${s}") {
+                sh '${MVN} -B -q test'
+              }
             }]
           }
         }
@@ -41,7 +48,9 @@ pipeline {
           def svc = env.SERVICES.split(',')
           parallel svc.collectEntries { s ->
             ["pkg-${s}": {
-              dir("services/${s}") { sh 'mvn -B -q -DskipTests package' }
+              dir("services/${s}") {
+                sh '${MVN} -B -q -DskipTests package'
+              }
             }]
           }
         }
