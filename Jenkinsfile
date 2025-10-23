@@ -1,55 +1,72 @@
 pipeline {
   agent any
 
-  tools { jdk 'jdk21'; maven 'M3' }
+  // No JDK tool required; we rely on the agent's Java (your Mac).
+  // If you configured a Maven tool named 'M3', keep the next line; otherwise delete the whole 'tools' block.
+  tools { maven 'M3' }
 
   environment {
-    REGISTRY       = 'https://index.docker.io/v1/'
-    DOCKERHUB      = 'dockerhub'                 // Jenkins credentials ID
-    DOCKERHUB_USER = credentials('dockerhub').usr
-    TAG            = "${env.BUILD_NUMBER}"
-    SERVICES       = "accounts-service,billing-service"
+    REGISTRY = 'https://index.docker.io/v1/'
+    // Bind the credentials; will expose CRED_USR and CRED_PSW automatically
+    CRED = credentials('dockerhub')
+    TAG = "${env.BUILD_NUMBER}"
+    SERVICES = "accounts-service,billing-service"
   }
 
-  options { timestamps(); ansiColor('xterm') }
-  triggers { pollSCM('H/5 * * * *') } // remove if you use a webhook
+  // Keep timestamps; remove ansiColor to avoid plugin requirement
+  options { timestamps() }
+
+  // If you're using GitHub webhook, you can remove pollSCM.
+  triggers { pollSCM('H/5 * * * *') }
 
   stages {
-    stage('Checkout'){ steps { checkout scm } }
 
-    stage('Unit tests (parallel)'){
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Unit tests (parallel)') {
       steps {
         script {
           def svc = env.SERVICES.split(',')
           parallel svc.collectEntries { s ->
-            ["test-${s}": { dir("services/${s}") { sh 'mvn -B -q test' } }]
+            ["test-${s}": {
+              dir("services/${s}") {
+                sh 'mvn -B -q test'
+              }
+            }]
           }
         }
       }
     }
 
-    stage('Package (parallel)'){
+    stage('Package (parallel)') {
       steps {
         script {
           def svc = env.SERVICES.split(',')
           parallel svc.collectEntries { s ->
-            ["pkg-${s}": { dir("services/${s}") { sh 'mvn -B -q -DskipTests package' } }]
+            ["pkg-${s}": {
+              dir("services/${s}") {
+                sh 'mvn -B -q -DskipTests package'
+              }
+            }]
           }
         }
       }
     }
 
-    stage('Build images (parallel)'){
+    stage('Build images (parallel)') {
       steps {
         script {
-          docker.withRegistry(env.REGISTRY, env.DOCKERHUB) {
+          // Login is handled by withRegistry; use credentialsId = 'dockerhub'
+          docker.withRegistry(env.REGISTRY, 'dockerhub') {
             def svc = env.SERVICES.split(',')
             parallel svc.collectEntries { s ->
               ["build-${s}": {
                 dir("services/${s}") {
                   sh """
-                    docker build -t ${DOCKERHUB_USER}/${s}:${TAG} .
-                    docker tag ${DOCKERHUB_USER}/${s}:${TAG} ${DOCKERHUB_USER}/${s}:latest
+                    docker build -t ${CRED_USR}/${s}:${TAG} .
+                    docker tag ${CRED_USR}/${s}:${TAG} ${CRED_USR}/${s}:latest
                   """
                 }
               }]
@@ -59,16 +76,16 @@ pipeline {
       }
     }
 
-    stage('Push images (parallel)'){
+    stage('Push images (parallel)') {
       steps {
         script {
-          docker.withRegistry(env.REGISTRY, env.DOCKERHUB) {
+          docker.withRegistry(env.REGISTRY, 'dockerhub') {
             def svc = env.SERVICES.split(',')
             parallel svc.collectEntries { s ->
               ["push-${s}": {
                 sh """
-                  docker push ${DOCKERHUB_USER}/${s}:${TAG}
-                  docker push ${DOCKERHUB_USER}/${s}:latest
+                  docker push ${CRED_USR}/${s}:${TAG}
+                  docker push ${CRED_USR}/${s}:latest
                 """
               }]
             }
@@ -77,10 +94,10 @@ pipeline {
       }
     }
 
-    stage('Deploy (Docker Compose)'){
+    stage('Deploy (Docker Compose)') {
       steps {
         sh """
-          export DOCKERHUB_USERNAME=${DOCKERHUB_USER}
+          export DOCKERHUB_USERNAME=${CRED_USR}
           export TAG=${TAG}
           docker compose pull
           docker compose up -d
@@ -88,7 +105,7 @@ pipeline {
       }
     }
 
-    stage('Verify'){
+    stage('Verify') {
       steps {
         sh 'curl -fsS http://localhost:8091/health'
         sh 'curl -fsS http://localhost:8092/health'
