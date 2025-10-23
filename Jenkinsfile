@@ -1,7 +1,7 @@
 pipeline {
   agent any
 
-  // Absolute paths so PATH quirks can’t bite us on macOS
+  // Absolute paths so PATH quirks can't bite us on macOS
   environment {
     MVN      = '/opt/homebrew/bin/mvn'      // change if `which mvn` shows a different path
     DOCKER   = '/usr/local/bin/docker'      // Docker Desktop CLI symlink
@@ -130,7 +130,7 @@ pipeline {
       }
     }
 
-    // Deploy from LOCAL images we just built (don’t depend on pull/push timing)
+    // Deploy from LOCAL images we just built (don't depend on pull/push timing)
     stage('Deploy (Docker Compose up)') {
       steps {
         script {
@@ -147,8 +147,21 @@ pipeline {
 
     stage('Verify') {
       steps {
-        sh "curl -fsS http://localhost:8091/health"
-        sh "curl -fsS http://localhost:8092/health"
+        script {
+          def services = [
+            [name: 'accounts-service', port: 8091],
+            [name: 'billing-service', port: 8092]
+          ]
+          
+          services.each { svc ->
+            echo "Waiting for ${svc.name} to be healthy..."
+            retry(10) {
+              sleep(time: 3, unit: 'SECONDS')
+              sh "curl -fsS http://localhost:${svc.port}/health"
+            }
+            echo "${svc.name} is healthy ✓"
+          }
+        }
       }
     }
   }
