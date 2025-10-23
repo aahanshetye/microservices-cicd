@@ -1,10 +1,6 @@
 pipeline {
   agent any
 
-  // No JDK tool required; we rely on the agent's Java (your Mac).
-  // If you configured a Maven tool named 'M3', keep the next line; otherwise delete the whole 'tools' block.
-  tools { maven 'M3' }
-
   environment {
     REGISTRY = 'https://index.docker.io/v1/'
     // Bind the credentials; will expose CRED_USR and CRED_PSW automatically
